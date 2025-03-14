@@ -101,8 +101,7 @@ const ProductDetails = () => {
     setRating(e.target.value);
     reviews.customerRating = e.target.value;
   };
-
-  const addReview = (e) => {
+const addReview = (e) => {
     e.preventDefault();
 
     const user = JSON.parse(localStorage.getItem("user"));

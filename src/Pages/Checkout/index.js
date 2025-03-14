@@ -22,7 +22,8 @@ const Checkout = () => {
   });
 
   const [cartData, setCartData] = useState([]);
-  const [totalAmount, setTotalAmount] = useState();
+  const [totalAmount, setTotalAmount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState("online"); // Default payment method
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -54,9 +55,6 @@ const Checkout = () => {
   const checkout = (e) => {
     e.preventDefault();
 
-    console.log(cartData);
-
-    console.log(formFields);
     if (formFields.fullName === "") {
       context.setAlertBox({
         open: true,
@@ -141,7 +139,7 @@ const Checkout = () => {
     const addressInfo = {
       name: formFields.fullName,
       phoneNumber: formFields.phoneNumber,
-      address: formFields.streetAddressLine1 + formFields.streetAddressLine2,
+      address: formFields.streetAddressLine1 + formFields.streetAddressLine2 + selectedPlace,
       pincode: formFields.zipCode,
       date: new Date().toLocaleString("en-US", {
         month: "short",
@@ -150,57 +148,105 @@ const Checkout = () => {
       }),
     };
 
-    var options = {
-      key:'rzp_test_ZpDYduBHIG7pPr',
-      key_secret: process.env.REACT_APP_RAZORPAY_KEY_SECRET,
-      amount: parseInt(totalAmount * 100),
-      currency: "INR",
-      order_receipt: "order_rcptid_" + formFields.fullName,
-      name: "E-Bharat",
-      description: "for testing purpose",
-      handler: function (response) {
-        console.log(response);
+    const user = JSON.parse(localStorage.getItem("user"));
 
-        const paymentId = response.razorpay_payment_id;
-
-        const user = JSON.parse(localStorage.getItem("user"));
-
-        const payLoad = {
-          name: addressInfo.name,
-          phoneNumber: formFields.phoneNumber,
-          address: addressInfo.address,
-          pincode: addressInfo.pincode,
-          amount: parseInt(totalAmount),
-          paymentId: paymentId,
-          email: user.email,
-          userid: user.userId,
-          products: cartData,
-          date: addressInfo?.date,
-        };
-
-        console.log(payLoad);
-
-        postData(`/api/orders/create`, payLoad).then((res) => {
-          fetchDataFromApi(`/api/cart?userId=${user?.userId}`).then((res) => {
-            res?.length !== 0 &&
-              res?.map((item) => {
-                deleteData(`/api/cart/${item?.id}`).then((res) => {});
-              });
-            setTimeout(() => {
-              context.getCartData();
-            }, 1000);
-            history("/orders");
-          });
-        });
-      },
-
-      theme: {
-        color: "#3399cc",
-      },
+    const payLoad = {
+      name: addressInfo.name,
+      phoneNumber: formFields.phoneNumber,
+      address: addressInfo.address,
+      pincode: addressInfo.pincode,
+      amount: parseInt(totalAmount) + charge,
+      paymentId: paymentMethod === "online" ? "Razorpay_Payment_ID" : "COD",
+      email: user.email,
+      userid: user.userId,
+      products: cartData,
+      date: addressInfo?.date,
+      deliveryCharge: charge,
+      paymentMethod: paymentMethod,
     };
 
-    var pay = new window.Razorpay(options);
-    pay.open();
+    if (paymentMethod === "online") {
+      var options = {
+        key: "rzp_test_ZpDYduBHIG7pPr",
+        key_secret: process.env.REACT_APP_RAZORPAY_KEY_SECRET,
+        amount: parseInt((totalAmount + charge) * 100),
+        currency: "INR",
+        order_receipt: "order_rcptid_" + formFields.fullName,
+        name: "E-Bharat",
+        description: "for testing purpose",
+        handler: function (response) {
+          console.log(response);
+
+          const paymentId = response.razorpay_payment_id;
+          payLoad.paymentId = paymentId;
+
+          postData(`/api/orders/create`, payLoad).then((res) => {
+            fetchDataFromApi(`/api/cart?userId=${user?.userId}`).then((res) => {
+              res?.length !== 0 &&
+                res?.map((item) => {
+                  deleteData(`/api/cart/${item?.id}`).then((res) => {});
+                });
+              setTimeout(() => {
+                context.getCartData();
+              }, 1000);
+              history("/orders");
+            });
+          });
+        },
+        theme: {
+          color: "#3399cc",
+        },
+      };
+
+      var pay = new window.Razorpay(options);
+      pay.open();
+    } else {
+      // Cash on Delivery
+      postData(`/api/orders/create`, payLoad).then((res) => {
+        fetchDataFromApi(`/api/cart?userId=${user?.userId}`).then((res) => {
+          res?.length !== 0 &&
+            res?.map((item) => {
+              deleteData(`/api/cart/${item?.id}`).then((res) => {});
+            });
+          setTimeout(() => {
+            context.getCartData();
+          }, 1000);
+          history("/orders");
+        });
+      });
+    }
+  };
+
+  const [selectedPlace, setSelectedPlace] = useState("");
+  const [charge, setCharge] = useState(0);
+  const [search, setSearch] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const places = {
+    Cheeral: 100,
+    Nambikolli: 70,
+    "Puthan Kunnu": 50,
+    Thoduvatti: 40,
+  };
+
+  const handleChange = (event) => {
+    const place = event.target.value;
+    setSelectedPlace(place);
+    setCharge(places[place]);
+  };
+
+  const filteredPlaces = Object.keys(places).filter((place) =>
+    place.toLowerCase().includes(search.toLowerCase())
+  );
+  const handleSearchChange = (event) => {
+    setSearch(event.target.value);
+    setShowSuggestions(true);
+  };
+  const handleSuggestionClick = (place) => {
+    setSearch(place);
+    setSelectedPlace(place);
+    setCharge(places[place]);
+    setShowSuggestions(false);
   };
 
   return (
@@ -238,7 +284,59 @@ const Checkout = () => {
                   </div>
                 </div>
               </div>
+              <div className="delivery-container">
+                <label className="delivery-label">Select a Place:</label>
 
+                {/* Search Input */}
+                <input
+                  type="text"
+                  placeholder="Search place..."
+                  value={search}
+                  onChange={handleSearchChange}
+                  className="delivery-input"
+                />
+
+                {/* Suggestions List (Visible when typing) */}
+                {showSuggestions && search && (
+                  <ul className="suggestions-list">
+                    {filteredPlaces.length > 0 ? (
+                      filteredPlaces.map((place) => (
+                        <li
+                          key={place}
+                          onClick={() => handleSuggestionClick(place)}
+                          className="suggestion-item"
+                        >
+                          {place}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="no-match">No matching places found</li>
+                    )}
+                  </ul>
+                )}
+
+                {/* Dropdown Menu */}
+                <select
+                  className="delivery-select"
+                  value={selectedPlace}
+                  onChange={handleChange}
+                >
+                  <option value="">-- Select --</option>
+                  {Object.keys(places).map((place) => (
+                    <option key={place} value={place}>
+                      {place}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Display Selected Place and Charge */}
+                {selectedPlace && (
+                  <p className="charge-info">
+                    Delivery Charge for {selectedPlace}:{" "}
+                    <span className="price-text">₹{charge}</span>
+                  </p>
+                )}
+              </div>
               <h6>Street address *</h6>
 
               <div className="row">
@@ -380,6 +478,11 @@ const Checkout = () => {
                         })}
 
                       <tr>
+                        <td>Delivery charge</td>
+                        <td>{charge}</td>
+                      </tr>
+
+                      <tr>
                         <td>Subtotal </td>
 
                         <td>
@@ -388,7 +491,7 @@ const Checkout = () => {
                                 ?.map(
                                   (item) => parseInt(item.price) * item.quantity
                                 )
-                                .reduce((total, value) => total + value, 0)
+                                .reduce((total, value) => total + value, 0) + charge
                             : 0
                           )?.toLocaleString("en-US", {
                             style: "currency",
@@ -398,6 +501,27 @@ const Checkout = () => {
                       </tr>
                     </tbody>
                   </table>
+                </div>
+
+                <div className="payment-method">
+                  <label>
+                    <input
+                      type="radio"
+                      value="online"
+                      checked={paymentMethod === "online"}
+                      onChange={() => setPaymentMethod("online")}
+                    />
+                    Online Payment
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      value="cod"
+                      checked={paymentMethod === "cod"}
+                      onChange={() => setPaymentMethod("cod")}
+                    />
+                    Cash on Delivery
+                  </label>
                 </div>
 
                 <Button
